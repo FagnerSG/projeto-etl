@@ -1,11 +1,8 @@
-from socket import create_connection
 import psycopg2
 import requests 
-import json
 import pandas as pd
-from psycopg2 import pool
-from datetime import datetime
 
+# Conexão com o banco de dados PostgreSQL
 try:
     conn = psycopg2.connect(
                         database = "postgresdatabase",                         
@@ -15,13 +12,65 @@ try:
                         port = 5432
                         )
     print("Conexão estabelecida com sucesso!")
-    print(conn.status)
-
 except psycopg2.Error as err:
     print(f"Erro ao conectar: {err}")
     conn = None
 
 cur = conn.cursor()
+
+# Função para criar as tabelas se não existirem
+def create_tables_if_not_exist():
+    create_customer_table = """
+    CREATE TABLE IF NOT EXISTS CustomerDTO (
+        customerId INT PRIMARY KEY NOT NULL,
+        accountNumber VARCHAR(50)
+    );
+    """
+    
+    create_product_table = """
+    CREATE TABLE IF NOT EXISTS ProductDTO (
+        productId INT PRIMARY KEY NOT NULL,
+        name VARCHAR(255),
+        standardCost DECIMAL,
+        category VARCHAR(100),
+        model VARCHAR(100),
+        sellStartDate DATE
+    );
+    """
+    
+    create_vendor_table = """
+    CREATE TABLE IF NOT EXISTS VendorsDTO (
+        vendorId INT PRIMARY KEY NOT NULL,
+        accountNumber VARCHAR(50),
+        vendorName VARCHAR(255),
+        creditRating VARCHAR(50)
+    );
+    """
+    
+    create_sales_fact_table = """
+    CREATE TABLE IF NOT EXISTS SalesFact (
+        salesFactId SERIAL PRIMARY KEY,
+        salesOrderId INT,
+        orderDate DATE,
+        customerId INT,
+        productId INT,
+        vendorId INT,
+        orderQuantity INT,
+        totalAmount DECIMAL,
+        FOREIGN KEY (customerId) REFERENCES CustomerDTO (customerId),
+        FOREIGN KEY (productId) REFERENCES ProductDTO (productId),
+        FOREIGN KEY (vendorId) REFERENCES VendorsDTO (vendorId)
+    );
+    """
+    
+    cur.execute(create_customer_table)
+    cur.execute(create_product_table)
+    cur.execute(create_vendor_table)
+    cur.execute(create_sales_fact_table)
+    conn.commit()
+    print("Tabelas criadas ou já existentes.")
+
+create_tables_if_not_exist()
 
 def extract_data_from_api(endpoints):
     demo_url = 'https://demodata.grapecity.com'
@@ -29,31 +78,28 @@ def extract_data_from_api(endpoints):
     response = requests.get(url)
     if response.status_code == 200:
         data = response.json()
-        print(f"Dados extraídos com sucesso de ")
+        print(f"Dados extraídos com sucesso de {url}")
         return pd.DataFrame(data)
     else:
-        print(f"Falha ao extrair dados de")
+        print(f"Falha ao extrair dados de {url}")
         return pd.DataFrame()
 
-# Extrair dados costomers
-def customers_df (): 
-    result_customers = extract_data_from_api('/adventureworks/api/v1/customers?PageNumber=1&PageSize=500')
-    return result_customers;
 
-# Transform dados customers
+def customers_df(): 
+    result_customers = extract_data_from_api('/adventureworks/api/v1/customers?PageNumber=1&PageSize=500')
+    return result_customers
+
 def transform_customers(customers_df):
     customers_df = customers_df.rename(columns={
        "customerId": "customerId",
        "accountNumber": "accountNumber",
     })   
-    customers_df = customers_df[["customerId", "accountNumber"]]
-    return customers_df
+    return customers_df[["customerId", "accountNumber"]]
 
 transformed_customers = transform_customers(customers_df())
 
-# Carregar dados customers e inserindo no DW
-for index, row in transformed_customers.iterrows():
 
+for index, row in transformed_customers.iterrows():
     insert_query = """
         INSERT INTO CustomerDTO (customerId, accountNumber)
         VALUES (%s, %s)
@@ -62,18 +108,15 @@ for index, row in transformed_customers.iterrows():
     """
     data = (row["customerId"], row["accountNumber"])
     print(f"Inserindo dados: {data}")  
-    cursor = conn.cursor()
-    cursor.execute(insert_query, data)   
+    cur.execute(insert_query, data)   
     conn.commit()
     print("CustomerDTO Inserido")
 
 
-# Extrair dados de Products
-def products_df ():
+def products_df():
     result_products_df = extract_data_from_api('/adventureworks/api/v1/products?PageNumber=1&PageSize=500')
     return result_products_df
 
-# Transformar dados products
 def transform_products(products_df):
     products_df = products_df.rename(columns={
         "productId": "productId",
@@ -82,72 +125,30 @@ def transform_products(products_df):
         "category": "category", 
         "model": "model",
         "sellStartDate": "sellStartDate",
-        "sellEndDate": "sellEndDate",
-        
     })
-    products_df = products_df[["productId", "name", "standardCost", "category", "model", "sellStartDate", "sellEndDate"]]
-    return products_df
+    return products_df[["productId", "name", "standardCost", "category", "model", "sellStartDate"]]
 
 transformed_products = transform_products(products_df())
 
-# Carregar dados products e inserindo no DW
+
 for index, row in transformed_products.iterrows():
     insert_query = """
-        INSERT INTO ProductDTO (productId, name, standardCost, category, model, sellStartDate, sellEndDate)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO ProductDTO (productId, name, standardCost, category, model, sellStartDate)
+        VALUES (%s, %s, %s, %s, %s, %s)
         ON CONFLICT (productId) DO UPDATE
         SET name = EXCLUDED.name,
             standardCost = EXCLUDED.standardCost,
             category = EXCLUDED.category,
             model = EXCLUDED.model,
-            sellStartDate = EXCLUDED.sellStartDate,
-            sellEndDate = EXCLUDED.sellEndDate;
+            sellStartDate = EXCLUDED.sellStartDate;
     """
-    data = (row["productId"], row["name"], row["standardCost"], row ["category"], row["model"], row["sellStartDate"], row["sellEndDate"])
+    data = (row["productId"], row["name"], row["standardCost"], row["category"], row["model"], row["sellStartDate"])
     print(f"Inserindo dados: {data}")  
-    cursor = conn.cursor()
-    cursor.execute(insert_query, data)   
+    cur.execute(insert_query, data)   
     conn.commit()
     print("ProductDTO Inserido")
 
-# Extrair dados de Order
-def orders_df ():
-    result_order_df = extract_data_from_api('/adventureworks/api/v1/salesOrders?pageNumber=1&PageSize=500')
-    return result_order_df
 
-# Transformar dados extraidos da order
-def transform_order(orders_df):
-    orders_df = orders_df.rename(columns={
-        "salesOrderId": "salesOrderId",
-        "orderDate": "orderDate",
-        "shipDate": "shipDate",
-        "status": "status",
-        "salesOrderNumber": "salesOrderNumber",
-    })
-    orders_df = orders_df[["salesOrderId", "orderDate", "shipDate", "status", "salesOrderNumber"]]
-    return orders_df
-
-transformed_orders = transform_order(orders_df())
-
-# Carregar dados orders e inserindo no DW
-for index, row in transformed_orders.iterrows():
-    insert_query = """
-        INSERT INTO OrderDTO (salesOrderId, orderDate, shipDate, status, salesOrderNumber)
-        VALUES (%s, %s, %s, %s, %s)
-        ON CONFLICT (salesOrderId) DO UPDATE
-        SET orderDate = EXCLUDED.orderDate,
-            shipDate = EXCLUDED.shipDate,
-            status = EXCLUDED.status,
-            salesOrderNumber = EXCLUDED.salesOrderNumber;
-    """
-    data = (row["salesOrderId"], row["orderDate"], row["shipDate"], row["status"], row["salesOrderNumber"])
-    print(f"Inserindo dados: {data}")  
-    cursor = conn.cursor()
-    cursor.execute(insert_query, data)   
-    conn.commit()
-    print("OrderDTO Inserido")
-
-# Extrair dados de Vendas
 def vendors_df():
     result_vendor_df = extract_data_from_api('/adventureworks/api/v1/vendors')
     return result_vendor_df
@@ -159,10 +160,10 @@ def transform_vendor(vendors_df):
         "name": "vendorName",
         "creditRating": "creditRating",
     })
-    vendors_df = vendors_df[["vendorId", "accountNumber", "vendorName", "creditRating"]]
-    return vendors_df
+    return vendors_df[["vendorId", "accountNumber", "vendorName", "creditRating"]]
 
 transformed_vendors = transform_vendor(vendors_df())
+
 
 for index, row in transformed_vendors.iterrows():
     insert_query = """
@@ -175,15 +176,81 @@ for index, row in transformed_vendors.iterrows():
     """
     data = (row["vendorId"], row["accountNumber"], row["vendorName"], row["creditRating"])
     print(f"Inserindo dados: {data}")  
-    cursor = conn.cursor()
-    cursor.execute(insert_query, data)   
+    cur.execute(insert_query, data)   
     conn.commit()
     print("VendorsDTO Inserido")
 
-    
-       
 
-if conn is not None:
-    cursor.close
-    conn.close()
-    print("Conexão encerrada.")
+def fetch_all_ids(table_name, column_name, cur):
+    query = f"SELECT {column_name} FROM {table_name};"
+    cur.execute(query)
+    results = cur.fetchall()
+    return [row[0] for row in results]  # Retorna uma lista com todos os IDs
+
+def generate_sales_fact_data(vendor_ids, customer_ids, product_ids):
+    sales_data = {
+        "salesOrderId": [],  # Inicializa listas vazias
+        "orderDate": [],
+        "customerId": [],
+        "productId": [],
+        "vendorId": [],
+        "orderQuantity": [],
+    }
+
+    # Determinar o número de entradas que queremos gerar
+    num_entries = min(len(vendor_ids), len(customer_ids), len(product_ids))
+
+    for i in range(num_entries):
+        sales_data["salesOrderId"].append(i + 1)  # IDs de vendas sequenciais
+        sales_data["orderDate"].append(pd.to_datetime('2024-01-01') + pd.DateOffset(days=i))  # Datas sequenciais
+        sales_data["customerId"].append(customer_ids[i])  # IDs dos clientes
+        sales_data["productId"].append(product_ids[i])  # IDs dos produtos
+        sales_data["vendorId"].append(vendor_ids[i])  # IDs dos fornecedores
+        sales_data["orderQuantity"].append(10)  # Quantidade padrão para cada entrada
+
+    return pd.DataFrame(sales_data)
+
+# Buscar todos os IDs das tabelas correspondentes
+vendor_ids = fetch_all_ids("VendorsDTO", "vendorId", cur)
+customer_ids = fetch_all_ids("CustomerDTO", "customerId", cur)
+product_ids = fetch_all_ids("ProductDTO", "productId", cur)
+
+# Gerar os dados de vendas usando os IDs das tabelas
+sales_fact_data = generate_sales_fact_data(vendor_ids, customer_ids, product_ids)
+
+# Loop para inserir os dados gerados
+for index, row in sales_fact_data.iterrows():
+    insert_query = """
+        INSERT INTO SalesFact (salesOrderId, orderDate, customerId, productId, vendorId, orderQuantity, totalAmount)
+        VALUES (%s, %s, %s, %s, %s, %s, %s);
+    """
+    
+    try:
+        # Tentar obter o custo padrão do produto
+        product_cost = transformed_products.loc[transformed_products['productId'] == row['productId'], 'standardCost'].values[0]
+    except IndexError:
+        print(f"Erro: Produto com ID {row['productId']} não encontrado no dataframe.")
+        continue
+
+    # Calcular o valor total
+    total_amount = float(row['orderQuantity']) * float(product_cost)
+
+    # Montar os dados para inserção
+    data = (
+        int(row["salesOrderId"]), 
+        row["orderDate"].to_pydatetime(),  
+        int(row["customerId"]), 
+        int(row["productId"]), 
+        int(row["vendorId"]), 
+        int(row["orderQuantity"]), 
+        total_amount
+    )
+
+    # Executar a inserção
+    print(f"Inserindo dados: {data}")  
+    cur.execute(insert_query, data)   
+    conn.commit()
+    print("SalesFact Inserido")
+
+cur.close()
+conn.close()

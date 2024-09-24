@@ -1,11 +1,33 @@
-version: '3'
+version: '3.9'
 services:
-  main:
-    build: 
-      context: .
-      dockerfile: Dockerfile
+  db:
+    image: postgres
+    container_name: postgres_db
+    shm_size: 128mb
+    environment:
+      POSTGRES_DB: postgresdatabase
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+    volumes:
+      - "postgres_data:/var/lib/postgresql/data"
+    restart: always
+    ports:
+      - "5432:5432"
+    networks:
+      - postgres_network
+
+  #main:
+  #  build: 
+  #    context: .
+  #    dockerfile: Dockerfile
     #ports:
     #  -"5432:5432"
     #environment:
     #  - MYSQL_HOST= mysql
     #  - MYSQL_ROOT_PASSWORD=
+
+volumes:
+  postgres_data:
+
+networks:
+  postgres_network:

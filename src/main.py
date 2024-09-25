@@ -69,21 +69,21 @@ def create_tables_if_not_exist():
         customerId INT,
         productId INT,
         vendorId INT,
-        dateId INT, -- Nova coluna para relacionamento com CalendarDTO
+        dateId INT, 
         orderQuantity INT,
         totalAmount DECIMAL,
         FOREIGN KEY (customerId) REFERENCES CustomerDTO (customerId),
         FOREIGN KEY (productId) REFERENCES ProductDTO (productId),
         FOREIGN KEY (vendorId) REFERENCES VendorsDTO (vendorId),
-        FOREIGN KEY (dateId) REFERENCES CalendarDTO (dateId) -- Relacionamento com CalendarDTO
+        FOREIGN KEY (dateId) REFERENCES CalendarDTO (dateId) 
     );
     """
     
     cur.execute(create_customer_table)
     cur.execute(create_product_table)
     cur.execute(create_vendor_table)
-    cur.execute(create_calendar_table)  # Criação da tabela CalendarDTO
-    cur.execute(create_sales_fact_table)  # Atualização da tabela SalesFact com relação a CalendarDTO
+    cur.execute(create_calendar_table)  
+    cur.execute(create_sales_fact_table)  
     conn.commit()
     print("Tabelas criadas ou já existentes.")
 
@@ -218,18 +218,18 @@ def insert_calendar_dates(start_date, end_date):
         conn.commit()
     print("CalendarDTO preenchido.")
     
-# Preencher CalendarDTO de 2020 a 2024
+# Preencher CalendarDTO de 2001 a 2024
 insert_calendar_dates('2001-01-01', '2024-12-31')
 
 def fetch_all_ids(table_name, column_name, cur):
     query = f"SELECT {column_name} FROM {table_name};"
     cur.execute(query)
     results = cur.fetchall()
-    return [row[0] for row in results]  # Retorna uma lista com todos os IDs
+    return [row[0] for row in results]  
 
 def generate_sales_fact_data(vendor_ids, customer_ids, product_ids):
     sales_data = {
-        "salesOrderId": [],  # Inicializa listas vazias
+        "salesOrderId": [],  
         "orderDate": [],
         "customerId": [],
         "productId": [],
@@ -237,16 +237,16 @@ def generate_sales_fact_data(vendor_ids, customer_ids, product_ids):
         "orderQuantity": [],
     }
 
-    # Determinar o número de entradas que queremos gerar
+    
     num_entries = min(len(vendor_ids), len(customer_ids), len(product_ids))
 
     for i in range(num_entries):
-        sales_data["salesOrderId"].append(i + 1)  # IDs de vendas sequenciais
-        sales_data["orderDate"].append(pd.to_datetime('2024-01-01') + pd.DateOffset(days=i))  # Datas sequenciais
-        sales_data["customerId"].append(customer_ids[i])  # IDs dos clientes
-        sales_data["productId"].append(product_ids[i])  # IDs dos produtos
-        sales_data["vendorId"].append(vendor_ids[i])  # IDs dos fornecedores
-        sales_data["orderQuantity"].append(10)  # Quantidade padrão para cada entrada
+        sales_data["salesOrderId"].append(i + 1)  
+        sales_data["orderDate"].append(pd.to_datetime('2024-01-01') + pd.DateOffset(days=i))  
+        sales_data["customerId"].append(customer_ids[i])  
+        sales_data["productId"].append(product_ids[i])  
+        sales_data["vendorId"].append(vendor_ids[i])  
+        sales_data["orderQuantity"].append(10)  
 
     return pd.DataFrame(sales_data)
 
@@ -266,42 +266,42 @@ def fetch_date_id(order_date, cur):
 
 # Loop para inserir os dados gerados
 for index, row in sales_fact_data.iterrows():
-    # Buscar o dateId na CalendarDTO usando o orderDate
+    
     date_id = fetch_date_id(row["orderDate"].date(), cur)
     
     if date_id is None:
         print(f"Erro: dateId não encontrado para a data {row['orderDate']}")
         continue
 
-    # Query de inserção na SalesFact
+    
     insert_query = """
         INSERT INTO SalesFact (salesOrderId, orderDate, customerId, productId, vendorId, dateId, orderQuantity, totalAmount)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
     """    
 
     try:
-        # Tentar obter o custo padrão do produto
+        
         product_cost = transformed_products.loc[transformed_products['productId'] == row['productId'], 'standardCost'].values[0]
     except IndexError:
         print(f"Erro: Produto com ID {row['productId']} não encontrado no dataframe.")
         continue
 
-    # Calcular o valor total
+    
     total_amount = float(row['orderQuantity']) * float(product_cost)
 
-    # Montar os dados para inserção
+    
     data = (
         int(row["salesOrderId"]), 
         row["orderDate"].to_pydatetime(),  
         int(row["customerId"]), 
         int(row["productId"]), 
         int(row["vendorId"]), 
-        date_id,  # Usar o dateId obtido da tabela CalendarDTO
+        date_id,  
         int(row["orderQuantity"]), 
         total_amount
     )
 
-    # Executar a inserção
+    
     print(f"Inserindo dados: {data}")  
     cur.execute(insert_query, data)   
     conn.commit()
